@@ -1,0 +1,103 @@
+---
+# Node Service
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: nifcloud-hatoba-disk-csi-node
+spec:
+  selector:
+    matchLabels:
+      app: nifcloud-hatoba-disk-csi-node
+  template:
+    metadata:
+      labels:
+        app: nifcloud-hatoba-disk-csi-node
+    spec:
+      serviceAccount: nifcloud-hatoba-disk-csi-node-sa
+      nodeSelector:
+        kubernetes.io/os: linux
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+      containers:
+        - name: node-driver
+          securityContext:
+            privileged: true
+          image: ghcr.io/nifcloud/nifcloud-hatoba-disk-csi-driver
+          imagePullPolicy: Always
+          args:
+            - --endpoint=$(CSI_ENDPOINT)
+            - --logtostderr
+            - --mode=node
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:/csi/csi.sock
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: kubelet-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: "Bidirectional"
+            - name: plugin-dir
+              mountPath: /csi
+            - name: device-dir
+              mountPath: /dev
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 5
+        - name: node-driver-registrar
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar
+          args:
+            - --csi-address=$(ADDRESS)
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -rf /registration/disk.csi.hatoba.nifcloud.com-reg.sock /csi/csi.sock"]
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/disk.csi.hatoba.nifcloud.com/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name: liveness-probe
+          image: k8s.gcr.io/sig-storage/livenessprobe
+          args:
+            - --csi-address=/csi/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+      volumes:
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/disk.csi.hatoba.nifcloud.com/
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+            type: Directory

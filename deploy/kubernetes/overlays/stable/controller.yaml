@@ -1,0 +1,14 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: nifcloud-hatoba-disk-csi-controller
+spec:
+  template:
+    spec:
+      containers:
+        - name: csi-driver
+          env:
+            - name: NIFCLOUD_HATOBA_CLUSTER_NRN
+              value: "" # please set your cluster's NRN
+
